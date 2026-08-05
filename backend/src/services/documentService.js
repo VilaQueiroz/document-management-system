@@ -1,13 +1,9 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 
-class DocumentService {
-  constructor(documentRepository) {
-    this.documentRepository = documentRepository;
-  }
-
-  async createDocument({ file, owner }) {
-    const documentMetadata = {
+class DocumentMetadataFactory {
+  create({ file, owner }) {
+    return {
       id: crypto.randomUUID(),
       originalName: file.originalname,
       storedName: file.filename,
@@ -17,6 +13,35 @@ class DocumentService {
       owner,
       storagePath: file.path,
     };
+  }
+}
+
+class LocalStorageAvailabilityChecker {
+  async isAvailable(filePath) {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+class DocumentService {
+  constructor(
+    documentRepository,
+    {
+      metadataFactory = new DocumentMetadataFactory(),
+      storageAvailabilityChecker = new LocalStorageAvailabilityChecker(),
+    } = {}
+  ) {
+    this.documentRepository = documentRepository;
+    this.metadataFactory = metadataFactory;
+    this.storageAvailabilityChecker = storageAvailabilityChecker;
+  }
+
+  async createDocument({ file, owner }) {
+    const documentMetadata = this.metadataFactory.create({ file, owner });
 
     return this.documentRepository.create(documentMetadata);
   }
@@ -32,12 +57,15 @@ class DocumentService {
       return null;
     }
 
-    try {
-      await fs.access(document.storagePath);
-      return document;
-    } catch {
+    const isAvailable = await this.storageAvailabilityChecker.isAvailable(
+      document.storagePath
+    );
+
+    if (!isAvailable) {
       return null;
     }
+
+    return document;
   }
 }
 
